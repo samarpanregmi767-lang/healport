@@ -1,3 +1,6 @@
+Demo: https://claude.ai/artifact/J2XUbU7nFzMRVWWg3nWh9V
+Slides: https://claude.ai/artifact/N4LFvXaL69SPzgiaHCxbeE
+
 # HealPort backend (Week 4 testing)
 
 ## Run
