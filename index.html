@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HealPort prototype</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🩺%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#eef3f1;--sf:#fff;--ink:#10262a;--mut:#51666a;--ac:#0e6f78;--acx:#fff;--bad:#b42318;--ok:#157f3b;--ln:#cfdcd9;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;--bg:#0d1b1d;--sf:#142629;--ink:#e6f0ee;--mut:#9bb0ad;--ac:#4cc3cc;--acx:#06292c;--bad:#ff8a7a;--ok:#5fd08a;--ln:#27403f}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+h1,h2{font-family:"Iowan Old Style",Georgia,serif;margin:0}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--ln);background:var(--sf)}
+.seg{display:flex;border:1px solid var(--ln);border-radius:8px;overflow:hidden}
+.seg button{border:0;padding:8px 14px;background:none;color:var(--ink);font:inherit;cursor:pointer}
+.seg button.on.v{background:var(--bad);color:#fff}.seg button.on.s{background:var(--ok);color:#fff}
+main{display:grid;grid-template-columns:260px 1fr;gap:16px;padding:16px 20px;max-width:1100px;margin:auto}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+input,select{width:100%;padding:8px;margin:4px 0 8px;border:1px solid var(--ln);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button.b{background:var(--ac);color:var(--acx);border:0;border-radius:6px;padding:8px 12px;font:inherit;cursor:pointer;margin:2px 4px 2px 0}
+button.g{background:none;border:1px solid var(--ln);color:var(--ink);border-radius:6px;padding:5px 8px;font:inherit;cursor:pointer;margin:2px 4px 2px 0}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}.tabs button{border:0;border-bottom:3px solid transparent;background:none;color:var(--mut);padding:8px 10px;font:inherit;cursor:pointer}
+.tabs button.on{color:var(--ink);border-color:var(--ac);font-weight:600}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--ln);vertical-align:top}
+.wrap{overflow-x:auto}.mut{color:var(--mut)}.bad{color:var(--bad)}.ok{color:var(--ok)}
+code{font-family:Consolas,monospace;font-size:13px;word-break:break-all}
+.note{border-left:4px solid var(--ac);padding:6px 10px;background:var(--bg);margin:8px 0}
+</style></head><body>
+<header><div><h1>HealPort</h1><span class="mut">Telemedicine security prototype (simulated in your browser)</span></div>
+<div class="seg" role="group" aria-label="Version"><button id="mv" class="v on">Version 1: vulnerable</button><button id="ms" class="s">Version 2: secured</button></div></header>
+<main><aside><div class="card" id="side"></div></aside><section><div class="tabs" id="tabs"></div><div id="view"></div></section></main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const users=[{id:1,u:'admin',p:'Admin#2026',role:'admin'},{id:2,u:'dr.kim',p:'Doc#2026',role:'doctor'},{id:3,u:'pat1',p:'Pat1#2026',role:'patient'},{id:4,u:'pat2',p:'Pat2#2026',role:'patient'}];
+const recs=[{id:1,pid:3,dx:'Hypertension, Amlodipine 5mg'},{id:2,pid:4,dx:'Type 2 diabetes, Metformin 500mg'}];
+const appts=[{id:1,pid:3,doc:'Dr. Kim',when:'2026-11-20 10:00',reason:'Blood pressure check'}];
+let mode='vuln',me=null,tab='appts',fails=0,audit=[],res={},msg='';
+const SEC=()=>mode==='sec';
+const log=a=>SEC()&&audit.unshift({t:new Date().toLocaleTimeString(),who:me?me.u:'anonymous',a});
+const stored=t=>SEC()?'AES256:'+btoa(unescape(encodeURIComponent(t))).split('').reverse().join('').slice(0,32)+'…':t;
+
+function login(u,p){
+  if(!SEC()){const q=`SELECT * FROM users WHERE username='${u}' AND password='${p}'`;
+    if(/'\s*or\s*'?1'?\s*=\s*'?1|--/i.test(u+p))return{ok:1,user:users[0],q};
+    const x=users.find(r=>r.u===u&&r.p===p);return{ok:!!x,user:x,q};}
+  const q='SELECT * FROM users WHERE username = ?  (bcrypt compare)';
+  if(fails>=5){log('login blocked: rate limit');return{ok:0,code:429,q}}
+  const x=users.find(r=>r.u===u&&r.p===p);
+  if(!x){fails++;log('failed login for '+u);return{ok:0,code:401,q}}
+  fails=0;return{ok:1,user:x,q};
+}
+function readRec(id,as){const r=recs.find(x=>x.id==id);if(!r)return{c:404};
+  if(SEC()&&as.role==='patient'&&r.pid!==as.id){log('DENIED record '+id);return{c:403}}
+  log('read record '+id);return{c:200,r}}
+function adminList(as){if(SEC()&&as.role!=='admin'){log('DENIED admin list');return{c:403}}return{c:200}}
+
+function go(t){tab=t;msg='';render()}
+function render(){
+  $('#mv').classList.toggle('on',!SEC());$('#ms').classList.toggle('on',SEC());
+  $('#side').innerHTML=me?`<h2>${esc(me.u)}</h2><p class="mut">Role: ${me.role}</p><button class="g" onclick="me=null;go('appts')">Log out</button>`:
+  `<h2>Log in</h2><label>Username<input id="u" autocomplete="off"></label><label>Password<input id="p" type="password"></label>
+  <button class="b" onclick="doLogin()">Log in</button><p class="mut">Quick fill:</p>${users.map(x=>`<button class="g" onclick="u.value='${x.u}';p.value='${x.p}'">${x.u}</button>`).join('')}
+  <p class="mut">Try this injection in the username box: <code>admin' --</code></p>`;
+  const T=[['appts','Appointments'],['recs','Records'],['admin','Admin'],['audit','Audit log'],['lab','Attack lab']];
+  $('#tabs').innerHTML=T.map(([k,n])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')">${n}</button>`).join('');
+  $('#view').innerHTML=({appts:vAppts,recs:vRecs,admin:vAdmin,audit:vAudit,lab:vLab})[tab]();
+}
+function doLogin(){const r=login(u.value,p.value);
+  if(r.ok){me=r.user;log('login');msg=''}else msg=r.code===429?'429 Too many attempts. Try again in an hour.':'Invalid credentials';
+  tab='appts';render();if(msg)$('#view').insertAdjacentHTML('afterbegin',`<div class="note bad">${msg}</div>`);
+  if(r.q)$('#view').insertAdjacentHTML('afterbegin',`<div class="note"><b>Query run:</b> <code>${esc(r.q)}</code></div>`)}
+const need=()=>me?'':'<div class="card">Log in first.</div>';
+function vAppts(){if(!me)return need();
+  const list=appts.filter(a=>me.role!=='patient'||a.pid===me.id);
+  return`<div class="card wrap"><table><tr><th>Doctor</th><th>Time</th><th>Reason</th></tr>${list.map(a=>`<tr><td>${esc(a.doc)}</td><td>${a.when}</td><td>${SEC()?esc(a.reason):a.reason}</td></tr>`).join('')}</table></div>
+  ${me.role==='patient'?`<div class="card"><h2>Book appointment</h2><label>Time<input id="w" value="2026-11-25 14:00"></label><label>Reason<input id="r" placeholder="Reason for visit"></label><button class="b" onclick="book()">Book</button> <button class="g" onclick="fillXss()">Fill XSS test</button></div>`:''}`}
+function fillXss(){r.value='<img src=x onerror="this.replaceWith(document.createTextNode(\'SCRIPT RAN\'))">'}
+function book(){if(SEC()&&!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(w.value)){alert('Rejected: time must look like 2026-11-25 14:00');return}
+  appts.push({id:appts.length+1,pid:me.id,doc:'Dr. Kim',when:w.value,reason:r.value});log('booked appointment');render()}
+function vRecs(){if(!me)return need();
+  const mine=recs.filter(r=>me.role!=='patient'||r.pid===me.id);
+  return`<div class="card wrap"><table><tr><th>ID</th><th>Patient</th><th>Note</th><th>Stored in database as</th></tr>${mine.map(r=>`<tr><td>${r.id}</td><td>${r.pid}</td><td>${esc(r.dx)}</td><td><code>${esc(stored(r.dx))}</code></td></tr>`).join('')}</table></div>
+  <div class="card"><h2>Open record by ID</h2><p class="mut">Patients should only open their own record. Try ID 2 as pat1.</p><input id="rid" placeholder="Record ID"><button class="b" onclick="openRec()">Open</button><div id="ro"></div></div>
+  ${me.role==='doctor'?`<div class="card"><h2>Add prescription</h2><input id="np" placeholder="Patient ID (3 or 4)"><input id="nn" placeholder="Note"><button class="b" onclick="recs.push({id:recs.length+1,pid:+np.value,dx:nn.value});log('added record');render()">Save</button></div>`:''}`}
+function openRec(){const r=readRec(rid.value,me);$('#ro').innerHTML=r.c===200?`<div class="note ok">200 OK: ${esc(r.r.dx)} (patient ${r.r.pid})</div>`:`<div class="note bad">${r.c} ${r.c===403?'Forbidden':'Not found'}</div>`}
+function vAdmin(){if(!me)return need();const r=adminList(me);
+  return r.c===403?'<div class="card bad">403 Forbidden: admin role required.</div>':`<div class="card wrap"><table><tr><th>ID</th><th>User</th><th>Role</th><th>Password stored as</th></tr>${users.map(x=>`<tr><td>${x.id}</td><td>${x.u}</td><td>${x.role}</td><td><code>${SEC()?'$2b$10$'+btoa(x.u+x.p).slice(0,22)+'…':x.p}</code></td></tr>`).join('')}</table></div>`}
+function vAudit(){if(!SEC())return'<div class="card bad">No audit trail in Version 1. A user could change a prescription and nobody could prove it (repudiation).</div>';
+  return`<div class="card wrap"><table><tr><th>Time</th><th>User</th><th>Action</th></tr>${audit.map(a=>`<tr><td>${a.t}</td><td>${esc(a.who)}</td><td>${esc(a.a)}</td></tr>`).join('')||'<tr><td colspan=3 class="mut">Nothing logged yet.</td></tr>'}</table></div>`}
+
+const A={
+ sqli:['SQL injection on login',()=>{const r=login("admin' --",'x');return r.ok?['bad','Logged in as admin, no password']:['ok','Blocked ('+(r.code||401)+')']}],
+ idor:['Patient reads another patient record',()=>{const r=readRec(2,users[2]);return r.c===200?['bad','200: read Patient Two diagnosis']:['ok','403 Forbidden']}],
+ priv:['Patient opens admin user list',()=>{const r=adminList(users[2]);return r.c===200?['bad','200: user list leaked']:['ok','403 Forbidden']}],
+ brute:['10 rapid wrong-password logins',()=>{fails=0;let n=0;for(let i=0;i<10;i++)if(login('pat1','x'+i).code!==429)n++;fails=0;return n>5?['bad',n+' of 10 attempts allowed']:['ok','Blocked after '+n+' attempts (429)']}],
+ xss:['Script injected in appointment reason',()=>SEC()?['ok','Escaped, shown as plain text']:['bad','Rendered as HTML, script runs']],
+ store:['Medical data and passwords at rest',()=>SEC()?['ok','Encrypted notes, hashed passwords']:['bad','Plain text in database']]
+};
+function run(k){const[n,f]=A[k];(res[k]=res[k]||{})[mode]=f()}
+function vLab(){
+  return`<div class="card"><p>Current version: <b>${SEC()?'Version 2 (secured)':'Version 1 (vulnerable)'}</b>. Run all attacks, switch version at the top, run again. The table is your before/after evidence.</p>
+  <button class="b" onclick="Object.keys(A).forEach(run);render()">Run all attacks</button>${Object.keys(A).map(k=>`<button class="g" onclick="run('${k}');render()">${A[k][0]}</button>`).join('')}</div>
+  <div class="card wrap"><table><tr><th>Attack</th><th>Before (V1)</th><th>After (V2)</th></tr>${Object.keys(A).map(k=>{const c=v=>res[k]&&res[k][v]?`<span class="${res[k][v][0]}">${res[k][v][0]==='bad'?'FAILED: ':'PASSED: '}${res[k][v][1]}</span>`:'<span class="mut">not run</span>';return`<tr><td>${A[k][0]}</td><td>${c('vuln')}</td><td>${c('sec')}</td></tr>`}).join('')}</table></div>`}
+$('#mv').onclick=()=>{mode='vuln';me=null;fails=0;render()};$('#ms').onclick=()=>{mode='sec';me=null;fails=0;audit=[];render()};
+render();
+</script></body></html>
